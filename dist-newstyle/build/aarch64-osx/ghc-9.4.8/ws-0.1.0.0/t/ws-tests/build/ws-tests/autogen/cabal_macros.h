@@ -20,6 +20,16 @@
   (major1) == 4 && (major2) <  17 || \
   (major1) == 4 && (major2) == 17 && (minor) <= 2)
 #endif /* MIN_VERSION_base */
+/* package directory-1.3.7.1 */
+#ifndef VERSION_directory
+#define VERSION_directory "1.3.7.1"
+#endif /* VERSION_directory */
+#ifndef MIN_VERSION_directory
+#define MIN_VERSION_directory(major1,major2,minor) (\
+  (major1) <  1 || \
+  (major1) == 1 && (major2) <  3 || \
+  (major1) == 1 && (major2) == 3 && (minor) <= 7)
+#endif /* MIN_VERSION_directory */
 /* package filepath-1.4.2.2 */
 #ifndef VERSION_filepath
 #define VERSION_filepath "1.4.2.2"
@@ -40,6 +50,16 @@
   (major1) == 2 && (major2) <  11 || \
   (major1) == 2 && (major2) == 11 && (minor) <= 12)
 #endif /* MIN_VERSION_hspec */
+/* package process-1.6.18.0 */
+#ifndef VERSION_process
+#define VERSION_process "1.6.18.0"
+#endif /* VERSION_process */
+#ifndef MIN_VERSION_process
+#define MIN_VERSION_process(major1,major2,minor) (\
+  (major1) <  1 || \
+  (major1) == 1 && (major2) <  6 || \
+  (major1) == 1 && (major2) == 6 && (minor) <= 18)
+#endif /* MIN_VERSION_process */
 /* package ws-0.1.0.0 */
 #ifndef VERSION_ws
 #define VERSION_ws "0.1.0.0"
