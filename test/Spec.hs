@@ -38,4 +38,4 @@ createTest testNumber = it ("Processes input-" ++ testNumber ++ ".txt correctly"
 
 -- Helper function to normalize line endings
 normalizeLineEndings :: String -> String
-normalizeLineEndings = unlines . lines
+normalizeLineEndings = filter (/= '\r') . unlines . lines
