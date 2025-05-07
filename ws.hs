@@ -1,15 +1,11 @@
-{-# LANGUAGE RankNTypes #-}
 module Main where
 import System.Environment
-import System.FilePath (takeFileName)
-import System.IO
 import Control.Monad
+import Text.Parsec.Expr (Operator)
 import Data.Bits (xor, shiftL, shiftR, complement)
 import Data.Char (isSpace, isDigit, toLower)
 import Data.Fixed (mod')
 import Data.List (transpose, intercalate)
-import Text.Regex.PCRE
-import Text.Regex.Base (AllTextMatches)
 import Debug.Trace (trace)
 
 data Value = VInt Int | VFloat Float | VBool Bool | VStr String | VVector [Int] | VMatrix [[Int]]
@@ -200,17 +196,29 @@ unaryIntOp f (VInt x : rest) = VInt (f x) : rest
 
 evalOp (x : rest) = evalToken rest (show x)
 
--- Tokenize  -----------------------------------------------------------------------------------
--- TODO doesn't work in all cases ahhhhh
-tokenize :: String -> [String]
-tokenize input = getAllTextMatches (input =~ regex :: AllTextMatches [] String)
-  where
-    regex =
-      "\"[^\"]*\"" ++
-      "|\\{\\s*\\d+\\s*\\|\\s*.*?\\s*\\}" ++
-      "|\\[\\s*(?:\\[\\s*\\d+(?:\\.\\d+)?\\s*,\\s*\\d+(?:\\.\\d+)?\\s*\\]\\s*,?\\s*)+\\]" ++
-      "|\\[\\s*\\d+(?:\\.\\d+)?\\s*,\\s*\\d+(?:\\.\\d+)?\\s*\\]" ++
-      "|\\S+"
+tokenize:: [Char] -> String -> Bool -> Bool -> Int -> [String]
+tokenize [] s   _
+        | null s = []
+        |otherwise =[reverse s]
+tokenize (o:ox) s quoted brackted count 
+        | '{' == o && not quoted = tokenize ox (o : s) quoted (not brackted) count
+
+        | '}' == o && not quoted = tokenize ox (o : s) quoted (not brackted) count
+        | brackted = tokenize ox (o : s) quoted brackted count
+        -- if it's a open square bracket incriment it 
+        | '[' == o && not quoted = tokenize ox (o : s) quoted brackted (count + 1)
+        -- ig it's a closed square bracker deincriment it
+        | ']' == o && not quoted = tokenize ox (o : s) quoted brackted (count - 1)
+        -- if it's going to be a string keep creating a token until not quated
+        | count > 0 = tokenize ox (o : s) quoted brackted count
+        | '"' == o = tokenize ox (o : s) (not quoted) brackted count
+        -- If we're still in quoated just keep creating the token
+        | quoted = tokenize ox (o : s) quoted brackted count
+        -- if it's not a space keep creating the token
+        | not (isSpace o) = tokenize ox (o : s) quoted brackted count
+        | not (null s) = reverse s : tokenize ox [] quoted brackted count
+        -- if it's a space skip it 
+        | otherwise = tokenize ox [] quoted brackted count
 
 -- more helper functions
 count c = length . filter (== c)
