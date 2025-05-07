@@ -19,9 +19,10 @@ data Node = IntNode Int
           | QuoteNode String
           | LambdaNode String
           deriving (Eq)
+type Stack = [Node]
 
 instance Show Node where
-  show (OpNode op)    = show op
+  show (OpNode op)    = op
   show (IntNode i)    = show i
   show (FloatNode f)  = show f
   show (BoolNode b)   = map toLower (show b)
@@ -45,12 +46,32 @@ showNodeType (OpNode _) = "Operator"
 
 main :: IO ()
 main = do
-        args <- getArgs
-        contents <- readFile (head args)
-        let tokens = tokenize contents "" False False 0
-            castedTokens = map castToken tokens
+  args <- getArgs
+  contents <- readFile (head args)
+  let input = head args
+      inputFile = reverse (takeWhile (/= '/') (reverse input)) -- gets filename from path
+      outputFile = "output-" ++ drop 6 inputFile
+      tokens = tokenize contents "" False False 0
+      castedTokens = map castToken tokens
+      result = process castedTokens
+  writeFile outputFile (unlines (map show (reverse result)))
 
-        mapM_ (\node -> putStrLn $ "Token: " ++ show node ++ " :: " ++ showNodeType node) castedTokens
+--        mapM_ (\node -> putStrLn $ "Token: " ++ show node ++ " :: " ++ showNodeType node) castedTokens
+process :: Stack -> Stack
+process tokens = foldl applyToken [] tokens
+
+applyToken :: Stack -> Node -> Stack
+applyToken stack token = case token of
+  OpNode "+" -> addOp stack
+  _          -> token : stack
+
+addOp :: Stack -> Stack
+addOp (IntNode x : IntNode y : rest)     = IntNode (y + x) : rest
+addOp (FloatNode x : FloatNode y : rest) = FloatNode (y + x) : rest
+addOp (IntNode x : FloatNode y : rest)   = FloatNode (y + fromIntegral x) : rest
+addOp (FloatNode x : IntNode y : rest)   = FloatNode (fromIntegral y + x) : rest
+addOp stack = error $ "Invalid stack for addOp: " ++ show stack
+
 
 castToken token
   | isLambda token     = LambdaNode token
