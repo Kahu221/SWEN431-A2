@@ -47,7 +47,7 @@ evalToken :: Stack -> String -> Stack
 evalToken stack token =
     case token of
         -- "+"  -> addOp (+) (+) (++) (addVec) (addMat) stack
-        "+"  -> addOp stack
+        "+"  -> addOp stack;
         "*"  -> multOp stack
         "-"  -> binNumOp (-) (-) stack
         "/"  -> binNumOp div (/) stack
@@ -200,12 +200,12 @@ tokenize:: [Char] -> String -> Bool -> Bool -> Int -> [String]
 tokenize [] s   _
         | null s = []
         |otherwise =[reverse s]
-tokenize (o:ox) s quoted brackted count 
+tokenize (o:ox) s quoted brackted count
         | '{' == o && not quoted = tokenize ox (o : s) quoted (not brackted) count
 
         | '}' == o && not quoted = tokenize ox (o : s) quoted (not brackted) count
         | brackted = tokenize ox (o : s) quoted brackted count
-        -- if it's a open square bracket incriment it 
+        -- if it's a open square bracket incriment it
         | '[' == o && not quoted = tokenize ox (o : s) quoted brackted (count + 1)
         -- ig it's a closed square bracker deincriment it
         | ']' == o && not quoted = tokenize ox (o : s) quoted brackted (count - 1)
@@ -217,7 +217,7 @@ tokenize (o:ox) s quoted brackted count
         -- if it's not a space keep creating the token
         | not (isSpace o) = tokenize ox (o : s) quoted brackted count
         | not (null s) = reverse s : tokenize ox [] quoted brackted count
-        -- if it's a space skip it 
+        -- if it's a space skip it
         | otherwise = tokenize ox [] quoted brackted count
 
 -- more helper functions
