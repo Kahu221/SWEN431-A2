@@ -1,154 +1,217 @@
+{-# LANGUAGE RankNTypes #-}
 module Main where
 import System.Environment
-import Data.List (intercalate)
 import System.FilePath (takeFileName)
+import System.IO
+import Control.Monad
+import Data.Bits (xor, shiftL, shiftR, complement)
+import Data.Char (isSpace, isDigit, toLower)
+import Data.Fixed (mod')
+import Data.List (transpose, intercalate)
+import Text.Regex.PCRE
+import Text.Regex.Base (AllTextMatches)
+import Debug.Trace (trace)
+
+data Value = VInt Int | VFloat Float | VBool Bool | VStr String | VVector [Int] | VMatrix [[Int]]
+            | VQuoting String | VLambda String
+  deriving (Eq)
+
+instance Show Value where
+  show (VInt i)  = show i
+  show (VFloat f)  = show f
+  show (VBool b) = map toLower (show b)
+  show (VStr s)  = "\"" ++ s ++ "\""
+  show (VVector v) = formatList v
+  show (VMatrix m) = "[" ++ intercalate ", " (map formatList m) ++ "]"
+  show (VQuoting q) = q
+  show (VLambda l) = l
+
+type Stack = [Value]
 
 main :: IO ()
-main = do 
-    args <- getArgs
-    let inputFile = head args
-        inputFileName = takeFileName inputFile
-        outputFile = "output-" ++ drop 6 inputFileName
-    contents <- readFile inputFile
-    let result = process contents
-    writeFile outputFile result
+main = do
+  args <- getArgs
+  contents <- readFile (head args)
+  let input = head args
+      inputFile = takeFileName input
+      outputFile = "output-" ++ drop 6 inputFile
+      result = process contents
+  putStrLn $ show (reverse result)
+  writeFile outputFile (unlines (map show (reverse result)))
 
-process :: String -> String
-process input = intercalate "\n" $ interpret [] (words input)
+process input = evalTokens [] (tokenize input)
 
-interpret :: [String] -> [String] -> [String]
-interpret stack [] = reverse stack
-interpret stack (token:tokens) = 
+evalTokens :: Stack -> [String] -> Stack
+evalTokens stack [] = stack
+evalTokens stack (token : tokens) =
+    let newStack = evalToken stack token
+    in evalTokens newStack tokens
+
+evalToken :: Stack -> String -> Stack
+evalToken stack token =
     case token of
-        -- Arithmetic operations
-        "+"  -> interpret (performOp (+) stack) tokens
-        "-"  -> interpret (performOp (-) stack) tokens
-        "*"  -> interpret (performOp (*) stack) tokens
-        "/"  -> interpret (performOp div stack) tokens
-        "**" -> interpret (performOp (^) stack) tokens
-        "%"  -> interpret (performOp mod stack) tokens
-        
-        -- Stack operations
-        "DROP"  -> interpret (dropOp stack) tokens
-        "DUP"   -> interpret (dupOp stack) tokens
-        "SWAP"  -> interpret (swapOp stack) tokens
-        "ROT"   -> interpret (rotOp stack) tokens
-        "ROLL"  -> interpret (rollOp stack) tokens
-        "ROLLD" -> interpret (rollDOp stack) tokens
-        "IFELSE"-> interpret (ifElseOp stack) tokens
-        
-        -- Comparison operators
-        "==" -> interpret (performCmp (==) stack) tokens
-        "!=" -> interpret (performCmp (/=) stack) tokens
-        ">"  -> interpret (performCmp (>) stack) tokens
-        "<"  -> interpret (performCmp (<) stack) tokens
-        ">=" -> interpret (performCmp (>=) stack) tokens
-        "<=" -> interpret (performCmp (<=) stack) tokens
-       -- "<=>" -> interpret (performCmp compare stack) tokens
-        
-        -- Boolean operators
-        "&"  -> interpret (performBoolOp (&&) stack) tokens
-        "|"  -> interpret (performBoolOp (||) stack) tokens
-        "^" -> interpret (performBoolOp xor stack) tokens
-        "!"  -> interpret (performNotOp stack) tokens
-        
-        -- Boolean values
-        "true"  -> interpret ("true":stack) tokens
-        "false" -> interpret ("false":stack) tokens
-        
-        -- Bitshift operators
-        "<<" -> interpret (performShiftOp shiftL stack) tokens
-        ">>" -> interpret (performShiftOp shiftR stack) tokens
-        
-        -- Default case
-        num -> interpret (num:stack) tokens
-    where
-        shiftL x y = x * (2 ^ y)
-        shiftR x y = x `div` (2 ^ y)
+        -- "+"  -> addOp (+) (+) (++) (addVec) (addMat) stack
+        "+"  -> addOp stack
+        "*"  -> multOp stack
+        "-"  -> binNumOp (-) (-) stack
+        "/"  -> binNumOp div (/) stack
+        "%"  -> binNumOp mod (mod') stack
+        "**" -> binNumOp (^) (**) stack
+        "x"  -> crossOp stack
 
--- Helper functions
-performOp :: (Int -> Int -> Int) -> [String] -> [String]
-performOp op (y:x:stack) = 
-    case (reads x, reads y) of
-        ([(xNum, "")], [(yNum, "")]) -> show (op xNum yNum) : stack
-        _ -> stack
-performOp _ stack = stack
+        "DROP"  -> dropOp stack
+        "DUP"   -> dupOp stack
+        "SWAP"  -> swapOp stack
+        "ROT"  -> rotOp stack
+        "ROLL" -> rollOp stack
+        "ROLLD"-> rolldOp stack
+        "IFELSE" -> ifElseOp stack
+        "TRANSP" -> transpOp stack
+        "EVAL" -> evalOp stack
 
-dropOp :: [String] -> [String]
-dropOp (_:stack) = stack
-dropOp stack = stack
+        "==" -> cmpOp (==) stack
+        "!=" -> cmpOp (/=) stack
+        ">"  -> cmpOp (>)  stack
+        "<"  -> cmpOp (<)  stack
+        ">=" -> cmpOp (>=) stack
+        "<=" -> cmpOp (<=) stack
+        "<=>" -> comparison stack
 
-dupOp :: [String] -> [String]
-dupOp (x:stack) = x:x:stack
-dupOp stack = stack
+        "&"  -> boolOp (&&) stack
+        "|"  -> boolOp (||) stack
+        "^"  -> xorOp stack
+        "<<" -> binIntOp shiftL stack
+        ">>" -> binIntOp shiftR stack
+        "!"  -> unaryBoolOp not stack
+        "~"  -> unaryIntOp complement stack
 
-swapOp :: [String] -> [String]
-swapOp (y:x:stack) = x:y:stack
-swapOp stack = stack
+        _    -> createValue token : stack -- otherwise is a number or string
 
-rotOp :: [String] -> [String]
-rotOp (z:y:x:stack) = x:z:y:stack
-rotOp stack = stack
+-- Helper function to convert strings to appropriate Value type
+createValue s
+  | head s == '"' && last s == '"' = VStr (init (tail s))
+  | count '[' s == 1 && head s == '[' && last s == ']' = VVector (read s)
+  | count '[' s > 1 && head s == '[' && last s == ']' = VMatrix (read s)
+  | head s == '{' && last s == '}' = VLambda s
+  | s == "true"  = VBool True
+  | s == "false" = VBool False
+  | '.' `elem` s && all (`elem` "-.0123456789") s = VFloat (read s)
+  | all (`elem` "-0123456789") s = VInt (read s)
+  | head s == '\'' = createValue (tail s) -- single quote
+  | otherwise =  VQuoting s   -- quoting
 
-rollOp :: [String] -> [String]
-rollOp (n:stack) = 
-    case reads n of
-        [(num, "")] -> 
-            if num > 0 && num <= length stack
-            then let (toRotate, rest) = splitAt num stack
-                 in (last toRotate : init toRotate) ++ rest
-            else stack
-        _ -> stack
-rollOp stack = stack
+number :: Value -> Value
+number (VInt x) = VFloat (fromIntegral x)
+number x = x
 
-rollDOp :: [String] -> [String]
-rollDOp (n:stack) = 
-    case reads n of
-        [(num, "")] -> 
-            if num > 0 && num <= length stack
-            then let (toRotate, rest) = splitAt num stack
-                 in (tail toRotate ++ [head toRotate]) ++ rest
-            else stack
-        _ -> stack
-rollDOp stack = stack
+binIntOp f (VInt x : VInt y : rest) = VInt (f y x) : rest
 
-performCmp :: (Int -> Int -> Bool) -> [String] -> [String]
-performCmp cmp (y:x:stack) = 
-    case (reads x, reads y) of
-        ([(xNum, "")], [(yNum, "")]) -> 
-            if cmp xNum yNum then "true":stack else "false":stack
-        _ -> stack
-performCmp _ stack = stack
+binNumOp :: (Int -> Int -> Int)
+      -> (Float -> Float -> Float)
+      -> [Value] -> [Value]
+binNumOp intF floatF (x : y : rest) = case (x, y) of
+  (VInt a, VInt b)       -> VInt   (intF b a)   : rest
+  (VFloat a, VFloat b)   -> VFloat (floatF b a) : rest
+  (VInt a, VFloat b)     -> VFloat (floatF b (fromIntegral a)) : rest
+  (VFloat a, VInt b)     -> VFloat (floatF (fromIntegral b) a) : rest
 
-performBoolOp :: (Bool -> Bool -> Bool) -> [String] -> [String]
-performBoolOp op (y:x:stack) = 
-    case (x, y) of
-        ("true", "true")   -> if op True True then "true":stack else "false":stack
-        ("true", "false")  -> if op True False then "true":stack else "false":stack
-        ("false", "true")  -> if op False True then "true":stack else "false":stack
-        ("false", "false") -> if op False False then "true":stack else "false":stack
-        _ -> stack
-performBoolOp _ stack = stack
+addOp (x : y : rest) = case (x, y) of
+      (VInt a, VInt b)       -> VInt (b + a) : rest
+      (VFloat a, VFloat b)   -> VFloat (b + a) : rest
+      (VInt a, VFloat b)     -> VFloat (b + (fromIntegral a)) : rest
+      (VFloat a, VInt b)     -> VFloat ((fromIntegral b) + a) : rest
+      (VStr a, VStr b)       -> VStr (b ++ a) : rest
+      (VVector a, VVector b) -> VVector (addVec b a) : rest
+      (VMatrix a, VMatrix b) -> VMatrix (addMat b a) : rest
 
-xor :: Bool -> Bool -> Bool
-xor a b = a /= b
+multOp (x : y : rest) = case (x, y) of
+      (VInt a, VInt b)       -> VInt (b * a) : rest
+      (VFloat a, VFloat b)   -> VFloat (b * a) : rest
+      (VInt a, VFloat b)     -> VFloat (b * (fromIntegral a)) : rest
+      (VFloat a, VInt b)     -> VFloat ((fromIntegral b) * a) : rest
+      (VInt a, VStr b)       -> VStr (concat (replicate a b)) : rest
+      (VVector a, VVector b) -> VInt (dot a b) : rest
+      (VVector a, VMatrix b) -> VVector (multMatVec a b) : rest
+      (VMatrix a, VVector b) -> VVector (multMatVec b a) : rest
+      (VMatrix a, VMatrix b) -> VMatrix (multMat b a) : rest
 
-performNotOp :: [String] -> [String]
-performNotOp ("true":stack) = "false":stack
-performNotOp ("false":stack) = "true":stack
-performNotOp stack = stack
+-- matrix and vector operations
+dot v1 v2 = sum (zipWith (*) v1 v2)
+addVec = zipWith (+)
+addMat = zipWith addVec
+multMat a b =
+  let bt = transpose b
+  in [ [ dot row col | col <- bt ] | row <- a ]
+multMatVec v m = map (`dot` v) m
 
-ifElseOp :: [String] -> [String]
-ifElseOp (cond:trueVal:falseVal:stack) = 
-    case cond of
-        "true"  -> trueVal:stack
-        "false" -> falseVal:stack
-        _ -> stack
-ifElseOp stack = stack
+cross [a1,a2,a3] [b1,b2,b3] =
+  [ a2*b3 - a3*b2
+  , a3*b1 - a1*b3
+  , a1*b2 - a2*b1 ]
+crossOp (VVector x:VVector y:xs) = VVector(cross y x):xs
+transpOp (VMatrix x:xs) = VMatrix(transpose x):xs
 
-performShiftOp :: (Int -> Int -> Int) -> [String] -> [String]
-performShiftOp op (y:x:stack) = 
-    case (reads x, reads y) of
-        ([(xNum, "")], [(yNum, "")]) -> show (op xNum yNum) : stack
-        _ -> stack
-performShiftOp _ stack = stack
+dropOp (x:xs) = xs
+dupOp (x:xs)  = x:x:xs
+swapOp (x:y:xs) = y:x:xs
+rotOp (x:y:z:rest) = z:x:y:rest
+
+cmpOp :: (forall a. Ord a => a -> a -> Bool) -> Stack -> Stack
+cmpOp f (VInt a : VInt b : rest) = VBool (f b a) : rest
+cmpOp f (VFloat a : VFloat b : rest) = VBool (f b a) : rest
+cmpOp f (VStr a : VStr b : rest) = VBool (f b a) : rest
+
+boolOp :: (Bool -> Bool -> Bool) -> Stack -> Stack
+boolOp f (VBool x : VBool y : rest) = VBool (f y x) : rest
+
+rollOp (VInt n : rest) =
+  let (top, bottom) = splitAt n rest
+      rotatedTop = last top : init top
+  in rotatedTop ++ bottom
+
+rolldOp (VInt n : rest) =
+  let (x:xs, bottom) = splitAt n rest
+  in xs ++ [x] ++ bottom
+
+comparison (x : y : rest) =
+  let sx = show x
+      sy = show y
+  in case compare sy sx of
+       LT -> VInt (-1) : rest
+       EQ -> VInt 0    : rest
+       GT -> VInt 1    : rest
+
+xorOp (VBool x : VBool y : rest) =
+  VBool (x /= y) : rest
+xorOp (VInt x : VInt y : rest) =
+  VInt (x `xor` y) : rest
+
+ifElseOp (VBool cond : falseVal : trueVal : rest) =
+  (if cond then trueVal else falseVal) : rest
+
+unaryBoolOp f (VBool x : rest) = VBool (f x) : rest
+unaryIntOp f (VInt x : rest) = VInt (f x) : rest
+
+-- evalOp (VLambda lambda : rest) =
+--     trace "Pattern match succeeded!"
+--   let body = (init (tail lambda))
+--   in evalToken rest (show body)
+--   --in evalToken rest (show x)
+
+evalOp (x : rest) = evalToken rest (show x)
+
+-- Tokenize  -----------------------------------------------------------------------------------
+-- TODO doesn't work in all cases ahhhhh
+tokenize :: String -> [String]
+tokenize input = getAllTextMatches (input =~ regex :: AllTextMatches [] String)
+  where
+    regex =
+      "\"[^\"]*\"" ++
+      "|\\{\\s*\\d+\\s*\\|\\s*.*?\\s*\\}" ++
+      "|\\[\\s*(?:\\[\\s*\\d+(?:\\.\\d+)?\\s*,\\s*\\d+(?:\\.\\d+)?\\s*\\]\\s*,?\\s*)+\\]" ++
+      "|\\[\\s*\\d+(?:\\.\\d+)?\\s*,\\s*\\d+(?:\\.\\d+)?\\s*\\]" ++
+      "|\\S+"
+
+-- more helper functions
+count c = length . filter (== c)
+formatList xs = "[" ++ intercalate ", " (map show xs) ++ "]"
