@@ -1,61 +1,34 @@
-module Main where 
+module Main where
 import System.Environment
+import System.FilePath (takeFileName)
 import System.IO
 import Control.Monad
-import Data.Bits
-import Data.Char (digitToInt, isSpace, isPrint, isDigit, toLower)
-import Text.Parsec.Expr (Operator)
-import Data.List (isInfixOf, intersperse, transpose, isPrefixOf, intercalate)
-import Text.Read (Lexeme(String))
-import Data.Functor.Reverse (Reverse)
-import System.Posix (OpenFileFlags(creat))
-import System.FilePath (takeBaseName, replaceExtension)
+import Data.Bits (xor, shiftL, shiftR, complement)
+import Data.Char (isSpace, isDigit, toLower)
+import Data.Fixed (mod')
+import Data.List (transpose, intercalate)
 
-data Node = IntNode Int          
-           | FloatNode Float     
-           | BoolNode Bool      
-           | StringNode String     
-           | VectorNode [Int]   
-           | MatrixNode [[Int]]   
-           | QuotedNode String   
-           | LambdaNode String  
-           deriving (Eq)  
-
-instance Show Node where
-  show (IntNode i)  = show i
-  show (FloatNode f)  = show f
-  show (BoolNode b) = map toLower (show b)
-  show (StringNode s)  = "\"" ++ s ++ "\""
-  show (VectorNode v) = formatList v
-  show (MatrixNode m) = "[" ++ intercalate ", " (map formatList m) ++ "]"
-  show (QuotedNode q) = q
-  show (LambdaNode l) = l
-
-formatList xs = "[" ++ intercalate ", " (map show xs) ++ "]"
-
-
-type Stack = [Node]
+data Value = VInt Int | VFloat Float | VBool Bool | VStr String | VVector [Int] | VMatrix [[Int]]
+            | VQuoting String | VLambda String
+  deriving (Eq)
+instance Show Value where
+  show (VInt i)  = show i
+  show (VFloat f)  = show f
+  show (VBool b) = map toLower (show b)
+  show (VStr s)  = "\"" ++ s ++ "\""
+  show (VVector v) = formatList v
+  show (VMatrix m) = "[" ++ intercalate ", " (map formatList m) ++ "]"
+  show (VQuoting q) = q
+  show (VLambda l) = l
 
 main :: IO ()
-main = do 
-    args <- getArgs
-    case args of
-        [] -> putStrLn "Error: No input file provided"
-        (inputFile:_) -> do
-            contents <- readFile inputFile
-            -- extract 3 digits from the input file name
-            let baseName = takeBaseName inputFile
-                outputDigits = take 3 $ dropWhile (not . isDigit) baseName
-                outputFile = "output-" ++ outputDigits ++ ".txt"
-            
-            -- For testing tokenizer during development
-            let tokens = tokenize contents "" False False 0
-            putStrLn $ "Tokens: " ++ show tokens  -- Remove this line before submission
-            
-            -- Process the input and write to properly named output file
-            writeFile outputFile (unlines tokens)  -- Using your tokenizer for now
-            putStrLn $ "Output written to " ++ outputFile  -- Remove this line before submission
-
+main = do
+  args <- getArgs
+  contents <- readFile (head args)
+  let input = head args
+      inputFile = takeFileName input
+      tokens = tokenize contents "" False False 0
+  mapM_ putStrLn tokens
 -- Your exact tokenize function (unchanged as requested)
 tokenize :: [Char] -> String -> Bool -> Bool -> Int -> [String]
 tokenize [] s _ _ _ 
@@ -79,3 +52,7 @@ tokenize (o:ox) s quoted brackted count
     | not (null s) = reverse s : tokenize ox [] quoted brackted count
     -- if it's a space, skip it 
     | otherwise = tokenize ox [] quoted brackted count
+
+-- more helper functions
+count c = length . filter (== c)
+formatList xs = "[" ++ intercalate ", " (map show xs) ++ "]"
