@@ -76,25 +76,27 @@ applyToken stack token = case token of
   OpNode "DROP" -> dropOp stack
   OpNode "DUP" -> dupOp stack
   OpNode "ROT" -> rotOp stack
---  OpNode "ROLL" -> rollOp stack
+  OpNode "ROLL" -> rollOp stack
   OpNode "ROLLD" -> rolldOp stack
   _          -> token : stack
 
-rolldOp :: Stack -> Stack
-rolldOp (IntNode n : xs)
-  | n < 0 = error "ROLLD requires a non-negative integer"
-  | length xs < n + 1 = error "Not enough elements on the stack for ROLLD"
-  | otherwise =
-      let (prefix, rest) = splitAt (n + 1) xs
-      in case reverse prefix of
-          (lastElem:restReversed) -> reverse restReversed ++ [lastElem] ++ rest
-          _ -> error "Unexpected pattern in ROLLD"
-rolldOp _ = error "ROLLD expects an integer followed by N+1 stack elements"
+rolldOp (IntNode n : rest) =
+  let
+    (firstPart, bottom) = splitAt n rest     -- Split the list into two parts: the first 'n' elements, and the remainder
+    x : xs = firstPart -- grab first elem
+    -- Rearrange by moving the first element after the rest of the firstPart and before the bottom
+    newList = xs ++ [x] ++ bottom
+  in
+    newList
 
+
+rollOp (IntNode n : rest) =
+  let (top, bottom) = splitAt n rest
+      rotatedTop = last top : init top
+  in rotatedTop ++ bottom
 
 rotOp :: Stack -> Stack
 rotOp (a:b:c:rest) = c:a:b:rest
-
 
 dropOp :: Stack -> Stack
 dropOp (_:xs) = xs
