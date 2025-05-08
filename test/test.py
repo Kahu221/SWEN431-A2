@@ -12,7 +12,7 @@ test_ids = [
 
 # Paths
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ws_script = os.path.join(project_root, "ws_cur.hs")
+ws_script = os.path.join(project_root, "ws.hs")
 inputs_path = os.path.join(project_root, "inputs")
 expected_path = os.path.join(project_root, "expected")
 results_log = os.path.join(project_root, "test", "test_results.txt")
