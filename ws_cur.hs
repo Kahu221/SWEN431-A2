@@ -81,7 +81,7 @@ applyToken stack token = case token of
 
   OpNode "TRANSP" -> transposeOp stack
 
---  OpNode "EVAL" -> evalOp stack
+  OpNode "EVAL" -> evalOp stack
   OpNode "^" -> xorOp stack
   OpNode "&" -> boolOp (&&) stack
   OpNode "|" -> boolOp (||) stack
@@ -101,7 +101,8 @@ applyToken stack token = case token of
 
   _          -> token : stack
 
---evalOp (x : rest) = applyToken rest [castToken (show x)]
+evalOp (x : rest) = foldl applyToken rest [castToken (show x)]
+
 transposeOp :: Stack -> Stack
 transposeOp (MatrixNode m : rest) = MatrixNode (transpose m) : rest
 transposeOp (VectorNode v : rest) = MatrixNode [v] : rest
@@ -239,7 +240,6 @@ addOp (FloatNode x : FloatNode y : rest) = FloatNode (y + x) : rest
 addOp (IntNode x : FloatNode y : rest)   = FloatNode (y + fromIntegral x) : rest
 addOp (FloatNode x : IntNode y : rest)   = FloatNode (fromIntegral y + x) : rest
 addOp (StrNode x : StrNode y : rest)   = StrNode (y ++ x) : rest
-
 addOp (VectorNode x : VectorNode y : rest) = VectorNode (zipWith (+) y x) : rest
 
 subOp :: Stack -> Stack
@@ -307,8 +307,12 @@ crossOp stack = case stack of
                    , a1*b2 - a2*b1 ] : rest
 
 castToken token
+  | "'" `isPrefixOf` token =
+      let strippedToken = tail token
+      in if isOp strippedToken
+         then QuoteNode strippedToken
+         else castToken strippedToken
   | isLambda token     = LambdaNode token
-  | isQuoted token     = QuoteNode (tail token)
   | isMatrix token     = MatrixNode (parseMatrix token)
   | isVector token     = VectorNode (parseVector token)
   | isString token     = StrNode (init (tail token))
@@ -318,7 +322,6 @@ castToken token
   | isOp token         = OpNode token
   | otherwise          = StrNode token
   where
-    isQuoted s = "'" `isPrefixOf` s
     isLambda s = "{" `isPrefixOf` s && "}" `isSuffixOf` s
     isMatrix s = "[[" `isPrefixOf` s && "]]" `isSuffixOf` s
     isVector s = "[" `isPrefixOf` s && "]" `isSuffixOf` s && not (isMatrix s)
@@ -330,7 +333,6 @@ castToken token
     isOp s = s `elem` [ "+", "-", "*", "/", "%", "**", "x", "==", "!=", "<", ">", "<=", ">=", "<=>", "&", "|", "^", "<<", ">>", "!", "~", "DROP", "DUP", "SWAP", "ROT", "ROLL", "ROLLD", "IFELSE", "TRANSP", "EVAL"]
     isInteger s = case reads s :: [(Int, String)] of [(_, "")] -> True; _ -> False
     isFloat s = case reads s :: [(Float, String)] of [(_, "")] -> True; _ -> False
-
     toBool s = case map toLower s of
                  "true"  -> True
                  "false" -> False
