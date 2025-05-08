@@ -81,6 +81,7 @@ applyToken stack token = case token of
 
   OpNode "TRANSP" -> transposeOp stack
 
+--  OpNode "EVAL" -> evalOp stack
   OpNode "^" -> xorOp stack
   OpNode "&" -> boolOp (&&) stack
   OpNode "|" -> boolOp (||) stack
@@ -100,6 +101,7 @@ applyToken stack token = case token of
 
   _          -> token : stack
 
+--evalOp (x : rest) = applyToken rest [castToken (show x)]
 transposeOp :: Stack -> Stack
 transposeOp (MatrixNode m : rest) = MatrixNode (transpose m) : rest
 transposeOp (VectorNode v : rest) = MatrixNode [v] : rest
@@ -316,8 +318,8 @@ castToken token
   | isOp token         = OpNode token
   | otherwise          = StrNode token
   where
+    isQuoted s = "'" `isPrefixOf` s
     isLambda s = "{" `isPrefixOf` s && "}" `isSuffixOf` s
-    isQuoted s = "'" `isPrefixOf` s && "'" `isSuffixOf` s
     isMatrix s = "[[" `isPrefixOf` s && "]]" `isSuffixOf` s
     isVector s = "[" `isPrefixOf` s && "]" `isSuffixOf` s && not (isMatrix s)
     isString s = "\"" `isPrefixOf` s && "\"" `isSuffixOf` s
@@ -325,14 +327,14 @@ castToken token
                    "true"  -> True
                    "false" -> True
                    _       -> False
-    isOp s = s `elem` [ "+", "-", "*", "/", "%", "**", "x", "==", "!=", "<", ">", "<=", ">=", "<=>", "&", "|", "^", "<<", ">>", "!", "~", "DROP", "DUP", "SWAP", "ROT", "ROLL", "ROLLD", "IFELSE", "TRANSP", "EVAL"] || "'" `isPrefixOf` s
+    isOp s = s `elem` [ "+", "-", "*", "/", "%", "**", "x", "==", "!=", "<", ">", "<=", ">=", "<=>", "&", "|", "^", "<<", ">>", "!", "~", "DROP", "DUP", "SWAP", "ROT", "ROLL", "ROLLD", "IFELSE", "TRANSP", "EVAL"]
     isInteger s = case reads s :: [(Int, String)] of [(_, "")] -> True; _ -> False
     isFloat s = case reads s :: [(Float, String)] of [(_, "")] -> True; _ -> False
 
     toBool s = case map toLower s of
                  "true"  -> True
                  "false" -> False
--- Helpers to safely parse vector/matrix
+
 parseVector :: String -> [Int]
 parseVector s = fromMaybe [] (readMaybe s :: Maybe [Int])
 
