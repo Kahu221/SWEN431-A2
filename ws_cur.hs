@@ -101,27 +101,14 @@ applyToken stack token = case token of
 
   _          -> token : stack
 
-
---processLambda :: String -> Stack -> Stack
---processLambda lambda stack =
---let
---  cleanedLambda = drop 1 (take (length lambda - 1) lambda)   -- gets rid of the {}
---    parts = words cleanedLambda
---    (arity, bodyTokens) = case parts of
---      (n:"|":body) -> (read n, body) -- extract the number of arguments and the body
---      _ -> error "Invalid lambda format"
-    -- currently we have the string "3" and "x2 x1 x0" as the body in this case
--- Function that takes a set of operators and replaces parameters
-
-
-
 processLambda :: String -> Stack -> Stack
 processLambda lambda stack =
   let
     (cleanLambda, lambdaStack, rest) = getLambdaParams lambda stack
---    tokens = tokenize cleanLambda "" False False 0
---    castedTokens = map castToken tokens
-    result = process lambdaStack
+    resolvedBody = parseLambda cleanLambda lambdaStack
+    tokens = tokenize resolvedBody "" False False 0
+    castedTokens = map castToken tokens
+    result = process castedTokens
   in result ++ rest
 
 parseLambda:: String -> Stack -> String
