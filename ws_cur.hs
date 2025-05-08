@@ -32,26 +32,14 @@ instance Show Node where
   show (QuoteNode q)  = q
   show (LambdaNode l) = l
 
--- helper stuff for printing TODO remove
-showNodeType :: Node -> String
-showNodeType (IntNode _)    = "Int"
-showNodeType (FloatNode _)  = "Float"
-showNodeType (BoolNode _)   = "Bool"
-showNodeType (StrNode _)    = "String"
-showNodeType (VectorNode _) = "Vector"
-showNodeType (MatrixNode _) = "Matrix"
-showNodeType (QuoteNode _)  = "Quote"
-showNodeType (LambdaNode _) = "Lambda"
-showNodeType (OpNode _) = "Operator"
-
 main :: IO ()
 main = do
   args <- getArgs
   contents <- readFile (head args)
   let input = head args
-      inputFile = reverse (takeWhile (/= '/') (reverse input)) -- gets filename from path
+      inputFile = reverse (takeWhile (/= '/') (reverse input))
       outputFile = "output-" ++ drop 6 inputFile
-      tokens = tokenize contents "" False False 0
+      tokens = parseStringToTokens contents "" False False 0
       castedTokens = map castToken tokens
       result = process castedTokens
   writeFile outputFile (unlines (map show (reverse result)))
@@ -106,7 +94,7 @@ processLambda lambda stack =
   let
     (cleanLambda, lambdaStack, rest) = getLambdaParams lambda stack
     resolvedBody = parseLambda cleanLambda lambdaStack
-    tokens = tokenize resolvedBody "" False False 0
+    tokens = parseStringToTokens resolvedBody "" False False 0
     castedTokens = map castToken tokens
     result = process castedTokens
   in result ++ rest
@@ -117,7 +105,9 @@ parseLambda lambda s = unwords (map replace (words inner))
         newStack = reverse s
         inner = init (tail lambda)
         replace ('x':ds) | all (`elem` ['0'..'9']) ds =
-                let i = read ds in if i < length newStack then show (newStack !! i) else "x" ++ ds
+                let i = read ds in case drop i newStack of
+                    (x:_) -> show x
+                    []    -> "x" ++ ds
         replace token = token
 
 getLambdaParams:: String -> Stack -> (String, Stack, Stack)
@@ -143,7 +133,6 @@ unaryNumNodeOp f stack =
     IntNode x : rest ->
       let result = f x
       in IntNode result : rest
-    _ -> error "Expected an IntNode on top of the stack"
 
 unaryBoolNodeOp f stack =
   case stack of
@@ -185,13 +174,10 @@ cmpOp op stack =
 
         (VectorNode a, VectorNode b) -> BoolNode (compareVector op a b) : rest
         (MatrixNode a, MatrixNode b) -> BoolNode (compareMatrix op a b) : rest
-        _ -> error "Invalid operands for comparison"
-    _ -> error "Invalid stack for comparison"
 
 compareVector :: String -> [Int] -> [Int] -> Bool
 compareVector "==" = (==)
 compareVector "!=" = (/=)
-compareVector op   = error $ "Vector only supports == and !=, got: " ++ op
 
 compareMatrix :: String -> [[Int]] -> [[Int]] -> Bool
 compareMatrix "==" = (==)
@@ -236,17 +222,14 @@ xorOp (BoolNode x : BoolNode y : rest) = BoolNode (y /= x) : rest -- Boolean log
 
 boolOp op (BoolNode b1 : BoolNode b2 : rest) =
   BoolNode (b2 `op` b1) : rest
-boolOp _ stack = error $ "Invalid stack for boolean operation: " ++ show stack
 
 rolldOp (IntNode n : rest) =
   let
-    (firstPart, bottom) = splitAt n rest     -- Split the list into two parts: the first 'n' elements, and the remainder
-    x : xs = firstPart -- grab first elem
-    -- Rearrange by moving the first element after the rest of the firstPart and before the bottom
+    (firstPart, bottom) = splitAt n rest
+    x : xs = firstPart
     newList = xs ++ [x] ++ bottom
   in
     newList
-
 
 rollOp (IntNode n : rest) =
   let (top, bottom) = splitAt n rest
@@ -278,7 +261,6 @@ subOp (IntNode x : IntNode y : xs) = IntNode (y - x) : xs
 subOp (FloatNode x : FloatNode y : xs) = FloatNode (y - x) : xs
 subOp (IntNode x : FloatNode y : xs) = FloatNode (y - fromIntegral x) : xs
 subOp (FloatNode x : IntNode y : xs) = FloatNode (fromIntegral y - x) : xs
-subOp _ = error "Invalid operands for subtraction"
 
 multOp :: Stack -> Stack
 multOp (IntNode x : IntNode y : xs) = IntNode (y * x) : xs
@@ -303,31 +285,21 @@ multOp (MatrixNode x : VectorNode y : rest) =
   let result = [sum $ zipWith (*) row y | row <- x]
   in VectorNode result : rest
 
-multOp _ = error "Invalid operands for multiplication"
-
-
 divOp :: Stack -> Stack
-divOp (IntNode 0 : _) = error "Division by zero"
-divOp (FloatNode 0.0 : _) = error "Division by zero"
 divOp (IntNode x : IntNode y : xs) = IntNode (y `div` x) : xs
 divOp (FloatNode x : FloatNode y : xs) = FloatNode (y / x) : xs
 divOp (IntNode x : FloatNode y : xs) = FloatNode (y / fromIntegral x) : xs
 divOp (FloatNode x : IntNode y : xs) = FloatNode (fromIntegral y / x) : xs
-divOp _ = error "Invalid operands for division"
 
 modOp :: Stack -> Stack
-modOp (IntNode 0 : _) = error "Modulo by zero"
-modOp (FloatNode 0.0 : _) = error "Modulo by zero"
 modOp (IntNode x : IntNode y : xs) = IntNode (y `mod` x) : xs
 modOp (FloatNode x : FloatNode y : xs) = FloatNode (y - fromIntegral (floor (y / x)) * x) : xs
-modOp _ = error "Invalid operands for modulo"
 
 expOp :: Stack -> Stack
 expOp (IntNode x : IntNode y : xs) = IntNode (y ^ x) : xs
 expOp (FloatNode x : FloatNode y : xs) = FloatNode (y ** x) : xs
 expOp (IntNode x : FloatNode y : xs) = FloatNode (y ** fromIntegral x) : xs
 expOp (FloatNode x : IntNode y : xs) = FloatNode (fromIntegral y ** x) : xs
-expOp _ = error "Invalid operands for exponentiation"
 
 -- create a vector node after crossing it and calulating the result array
 crossOp :: Stack -> Stack
@@ -369,36 +341,33 @@ castToken token
                  "false" -> False
 
 parseVector :: String -> [Int]
-parseVector s = fromMaybe [] (readMaybe s :: Maybe [Int])
+parseVector s =
+  case reads s of
+    [(xs, "")] -> xs
+    _          -> []
 
 parseMatrix :: String -> [[Int]]
-parseMatrix s = fromMaybe [] (readMaybe s :: Maybe [[Int]])
+parseMatrix s =
+  case reads s of
+    [(xss, "")] -> xss
+    _           -> []
 
+parseStringToTokens :: String -> String -> Bool -> Bool -> Int -> [String]
+parseStringToTokens [] currentStr _ _ _
+    | null currentStr = []
+    | otherwise = [reverse currentStr]
+parseStringToTokens (currentChar:rest) currentStr insideQuotes insideBrackets depth
+    | currentChar == '{' && not insideQuotes = parseStringToTokens rest (currentChar : currentStr) insideQuotes (not insideBrackets) depth
+    | currentChar == '}' && not insideQuotes = parseStringToTokens rest (currentChar : currentStr) insideQuotes (not insideBrackets) depth
+    | insideBrackets = parseStringToTokens rest (currentChar : currentStr) insideQuotes insideBrackets depth
+    | currentChar == '[' && not insideQuotes = parseStringToTokens rest (currentChar : currentStr) insideQuotes insideBrackets (depth + 1)
+    | currentChar == ']' && not insideQuotes = parseStringToTokens rest (currentChar : currentStr) insideQuotes insideBrackets (depth - 1)
+    | depth > 0 = parseStringToTokens rest (currentChar : currentStr) insideQuotes insideBrackets depth
+    | currentChar == '"' = parseStringToTokens rest (currentChar : currentStr) (not insideQuotes) insideBrackets depth
+    | insideQuotes = parseStringToTokens rest (currentChar : currentStr) insideQuotes insideBrackets depth
+    | not (isSpace currentChar) = parseStringToTokens rest (currentChar : currentStr) insideQuotes insideBrackets depth
+    | not (null currentStr) = reverse currentStr : parseStringToTokens rest [] insideQuotes insideBrackets depth
+    | otherwise = parseStringToTokens rest [] insideQuotes insideBrackets depth
 
--- TODO : ADJUST THIS
-tokenize :: [Char] -> String -> Bool -> Bool -> Int -> [String]
-tokenize [] s _ _ _ 
-    | null s = []
-    | otherwise = [reverse s]
-tokenize (o:ox) s quoted brackted count 
-    | '{' == o && not quoted = tokenize ox (o : s) quoted (not brackted) count
-    | '}' == o && not quoted = tokenize ox (o : s) quoted (not brackted) count
-    | brackted = tokenize ox (o : s) quoted brackted count
-    -- if it's an open square bracket increment it 
-    | '[' == o && not quoted = tokenize ox (o : s) quoted brackted (count + 1)
-    -- if it's a closed square bracket decrement it
-    | ']' == o && not quoted = tokenize ox (o : s) quoted brackted (count - 1)
-    -- if it's going to be a string keep creating a token until not quoted
-    | count > 0 = tokenize ox (o : s) quoted brackted count
-    | '"' == o = tokenize ox (o : s) (not quoted) brackted count
-    -- If we're still quoted just keep creating the token
-    | quoted = tokenize ox (o : s) quoted brackted count
-    -- if it's not a space keep creating the token
-    | not (isSpace o) = tokenize ox (o : s) quoted brackted count
-    | not (null s) = reverse s : tokenize ox [] quoted brackted count
-    -- if it's a space, skip it 
-    | otherwise = tokenize ox [] quoted brackted count
-
--- more helper functions
 count c = length . filter (== c)
 formatList xs = "[" ++ intercalate ", " (map show xs) ++ "]"
