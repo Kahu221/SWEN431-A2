@@ -56,7 +56,6 @@ main = do
       result = process castedTokens
   writeFile outputFile (unlines (map show (reverse result)))
 
---        mapM_ (\node -> putStrLn $ "Token: " ++ show node ++ " :: " ++ showNodeType node) castedTokens
 process :: Stack -> Stack
 process tokens = foldl applyToken [] tokens
 
@@ -90,9 +89,28 @@ applyToken stack token = case token of
   OpNode ">=" -> cmpOp ">=" stack
   OpNode "<=" -> cmpOp "<=" stack
 
-
+  OpNode "<=>" -> cpmEqualityOp stack
+  OpNode "<<" -> binIntOp shiftL stack
+  OpNode ">>" -> binIntOp shiftR stack
 
   _          -> token : stack
+
+binIntOp :: (Int -> Int -> Int) -> Stack -> Stack
+binIntOp f (IntNode x : IntNode y : rest) =
+  let result = f y x
+      node = IntNode result
+  in node : rest
+
+cpmEqualityOp :: Stack -> Stack
+cpmEqualityOp (x : y : rest) =
+  let stringX = show x
+      stringY = show y
+      result = compare stringY stringX
+      output = case result of
+        LT -> IntNode (-1)
+        EQ -> IntNode 0
+        GT -> IntNode 1
+  in output : rest
 
 cmpOp :: String -> Stack -> Stack
 cmpOp op stack =
@@ -196,6 +214,7 @@ addOp (IntNode x : IntNode y : rest)     = IntNode (y + x) : rest
 addOp (FloatNode x : FloatNode y : rest) = FloatNode (y + x) : rest
 addOp (IntNode x : FloatNode y : rest)   = FloatNode (y + fromIntegral x) : rest
 addOp (FloatNode x : IntNode y : rest)   = FloatNode (fromIntegral y + x) : rest
+addOp (StrNode x : StrNode y : rest)   = StrNode (y ++ x) : rest
 
 subOp :: Stack -> Stack
 subOp (IntNode x : IntNode y : xs) = IntNode (y - x) : xs
@@ -209,6 +228,10 @@ multOp (IntNode x : IntNode y : xs) = IntNode (y * x) : xs
 multOp (FloatNode x : FloatNode y : xs) = FloatNode (y * x) : xs
 multOp (IntNode x : FloatNode y : xs) = FloatNode (y * fromIntegral x) : xs
 multOp (FloatNode x : IntNode y : xs) = FloatNode (fromIntegral y * x) : xs
+multOp (StrNode x : IntNode y : xs) = StrNode (concat (replicate y x)) : xs
+multOp (IntNode x : StrNode y : xs) = StrNode (concat (replicate x y)) : xs
+multOp (FloatNode x : StrNode y : xs) = StrNode (concat (replicate (round x) y)) : xs
+multOp (StrNode x : FloatNode y : xs) = StrNode (concat (replicate (round y) x)) : xs
 multOp _ = error "Invalid operands for multiplication"
 
 divOp :: Stack -> Stack
