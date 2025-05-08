@@ -93,7 +93,23 @@ applyToken stack token = case token of
   OpNode "<<" -> binIntOp shiftL stack
   OpNode ">>" -> binIntOp shiftR stack
 
+  OpNode "~" -> unaryNumNodeOp complement stack
+  OpNode "!" -> unaryBoolNodeOp not stack
+
   _          -> token : stack
+
+unaryNumNodeOp f stack =
+  case stack of
+    IntNode x : rest ->
+      let result = f x
+      in IntNode result : rest
+    _ -> error "Expected an IntNode on top of the stack"
+
+unaryBoolNodeOp f stack =
+  case stack of
+    BoolNode x : rest ->
+      let result = f x
+      in BoolNode result : rest
 
 binIntOp :: (Int -> Int -> Int) -> Stack -> Stack
 binIntOp f (IntNode x : IntNode y : rest) =
@@ -216,6 +232,8 @@ addOp (IntNode x : FloatNode y : rest)   = FloatNode (y + fromIntegral x) : rest
 addOp (FloatNode x : IntNode y : rest)   = FloatNode (fromIntegral y + x) : rest
 addOp (StrNode x : StrNode y : rest)   = StrNode (y ++ x) : rest
 
+addOp (VectorNode x : VectorNode y : rest) = VectorNode (zipWith (+) y x) : rest
+
 subOp :: Stack -> Stack
 subOp (IntNode x : IntNode y : xs) = IntNode (y - x) : xs
 subOp (FloatNode x : FloatNode y : xs) = FloatNode (y - x) : xs
@@ -232,7 +250,22 @@ multOp (StrNode x : IntNode y : xs) = StrNode (concat (replicate y x)) : xs
 multOp (IntNode x : StrNode y : xs) = StrNode (concat (replicate x y)) : xs
 multOp (FloatNode x : StrNode y : xs) = StrNode (concat (replicate (round x) y)) : xs
 multOp (StrNode x : FloatNode y : xs) = StrNode (concat (replicate (round y) x)) : xs
+multOp (VectorNode x : VectorNode y : rest) = IntNode (sum (zipWith (*) y x)) : rest
+multOp (MatrixNode x : MatrixNode y : rest) =
+  let result = [[sum $ zipWith (*) row col | col <- transpose y] | row <- x]
+  in MatrixNode result : rest
+
+
+multOp (VectorNode x : MatrixNode y : rest) =
+  let result = [sum $ zipWith (*) x row | row <- y]
+  in VectorNode result : rest
+
+multOp (MatrixNode x : VectorNode y : rest) =
+  let result = [sum $ zipWith (*) row y | row <- x]
+  in VectorNode result : rest
+
 multOp _ = error "Invalid operands for multiplication"
+
 
 divOp :: Stack -> Stack
 divOp (IntNode 0 : _) = error "Division by zero"
@@ -247,7 +280,7 @@ modOp :: Stack -> Stack
 modOp (IntNode 0 : _) = error "Modulo by zero"
 modOp (FloatNode 0.0 : _) = error "Modulo by zero"
 modOp (IntNode x : IntNode y : xs) = IntNode (y `mod` x) : xs
-modOp (FloatNode x : FloatNode y : xs) = FloatNode (mod' y x) : xs
+modOp (FloatNode x : FloatNode y : xs) = FloatNode (y - fromIntegral (floor (y / x)) * x) : xs
 modOp _ = error "Invalid operands for modulo"
 
 expOp :: Stack -> Stack
