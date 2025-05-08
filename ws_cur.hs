@@ -78,7 +78,91 @@ applyToken stack token = case token of
   OpNode "ROT" -> rotOp stack
   OpNode "ROLL" -> rollOp stack
   OpNode "ROLLD" -> rolldOp stack
+  OpNode "IFELSE" -> ifElseOp stack
+
+  OpNode "^" -> xorOp stack
+  OpNode "&" -> boolOp (&&) stack
+  OpNode "|" -> boolOp (||) stack
+  OpNode "==" -> cmpOp "==" stack
+  OpNode "!=" -> cmpOp "!=" stack
+  OpNode ">" -> cmpOp ">" stack
+  OpNode "<" -> cmpOp "<" stack
+  OpNode ">=" -> cmpOp ">=" stack
+  OpNode "<=" -> cmpOp "<=" stack
+
+
+
   _          -> token : stack
+
+cmpOp :: String -> Stack -> Stack
+cmpOp op stack =
+  case stack of
+    (y : x : rest) ->
+      case (x, y) of
+        (IntNode a, IntNode b)       -> BoolNode (compareInt op a b) : rest
+        (FloatNode a, FloatNode b) -> BoolNode (compareFloat op a b) : rest
+        (StrNode a, StrNode b) -> BoolNode (compareString op a b) : rest
+        (BoolNode a, BoolNode b) -> BoolNode (compareBool op  a b) : rest
+        (QuoteNode a, QuoteNode b) -> BoolNode (compareString op a b) : rest
+        (LambdaNode a, LambdaNode b) -> BoolNode (compareString op a b) : rest
+
+        (FloatNode a, IntNode b) -> BoolNode (compareFloat op a (fromIntegral b)) : rest
+        (IntNode a, FloatNode b) -> BoolNode (compareFloat op (fromIntegral a) b) : rest
+
+        (VectorNode a, VectorNode b) -> BoolNode (compareVector op a b) : rest
+        (MatrixNode a, MatrixNode b) -> BoolNode (compareMatrix op a b) : rest
+        _ -> error "Invalid operands for comparison"
+    _ -> error "Invalid stack for comparison"
+
+compareVector :: String -> [Int] -> [Int] -> Bool
+compareVector "==" = (==)
+compareVector "!=" = (/=)
+compareVector op   = error $ "Vector only supports == and !=, got: " ++ op
+
+compareMatrix :: String -> [[Int]] -> [[Int]] -> Bool
+compareMatrix "==" = (==)
+compareMatrix "!=" = (/=)
+
+compareBool :: String -> Bool -> Bool -> Bool
+compareBool "==" = (==)
+compareBool "!=" = (/=)
+
+compareInt :: String -> Int -> Int -> Bool
+compareInt "==" = (==)
+compareInt "!=" = (/=)
+compareInt "<"  = (<)
+compareInt ">"  = (>)
+compareInt "<=" = (<=)
+compareInt ">=" = (>=)
+
+compareFloat :: String -> Float -> Float -> Bool
+compareFloat "==" = (==)
+compareFloat "!=" = (/=)
+compareFloat "<"  = (<)
+compareFloat ">"  = (>)
+compareFloat "<=" = (<=)
+compareFloat ">=" = (>=)
+
+compareString :: String -> String -> String -> Bool
+compareString "==" = (==)
+compareString "!=" = (/=)
+compareString "<"  = (<)
+compareString ">"  = (>)
+compareString "<=" = (<=)
+compareString ">=" = (>=)
+
+ifElseOp :: Stack -> Stack
+ifElseOp (BoolNode cond : falseVal : trueVal : rest)
+  | cond      = trueVal : rest
+  | otherwise = falseVal : rest
+
+xorOp :: Stack -> Stack
+xorOp (IntNode x : IntNode y : rest)   = IntNode (y `xor` x) : rest -- Integer bitwise XOR
+xorOp (BoolNode x : BoolNode y : rest) = BoolNode (y /= x) : rest -- Boolean logical XOR
+
+boolOp op (BoolNode b1 : BoolNode b2 : rest) =
+  BoolNode (b2 `op` b1) : rest
+boolOp _ stack = error $ "Invalid stack for boolean operation: " ++ show stack
 
 rolldOp (IntNode n : rest) =
   let
