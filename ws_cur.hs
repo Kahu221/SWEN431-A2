@@ -61,7 +61,7 @@ process tokens = foldl applyToken [] tokens
 
 applyToken :: Stack -> Node -> Stack
 applyToken stack token = case token of
-
+  LambdaNode lambda -> processLambda lambda stack
   OpNode "+" -> addOp stack
   OpNode "-" -> subOp stack
   OpNode "*" -> multOp stack
@@ -100,6 +100,50 @@ applyToken stack token = case token of
   OpNode "!" -> unaryBoolNodeOp not stack
 
   _          -> token : stack
+
+
+--processLambda :: String -> Stack -> Stack
+--processLambda lambda stack =
+--let
+--  cleanedLambda = drop 1 (take (length lambda - 1) lambda)   -- gets rid of the {}
+--    parts = words cleanedLambda
+--    (arity, bodyTokens) = case parts of
+--      (n:"|":body) -> (read n, body) -- extract the number of arguments and the body
+--      _ -> error "Invalid lambda format"
+    -- currently we have the string "3" and "x2 x1 x0" as the body in this case
+-- Function that takes a set of operators and replaces parameters
+
+
+
+processLambda :: String -> Stack -> Stack
+processLambda lambda stack =
+  let
+    (cleanLambda, lambdaStack, rest) = getLambdaParams lambda stack
+--    tokens = tokenize cleanLambda "" False False 0
+--    castedTokens = map castToken tokens
+    result = process lambdaStack
+  in result ++ rest
+
+parseLambda:: String -> Stack -> String
+parseLambda lambda s = unwords (map replace (words inner))
+        where
+        newStack = reverse s
+        inner = init (tail lambda)
+        replace ('x':ds) | all (`elem` ['0'..'9']) ds =
+                let i = read ds in if i < length newStack then show (newStack !! i) else "x" ++ ds
+        replace token = token
+
+getLambdaParams:: String -> Stack -> (String, Stack, Stack)
+getLambdaParams lambda s = (cleanLambda, popped, rest)
+        where
+        n = read (takeWhile (/= '|') (filter (`notElem` " {}") lambda))
+        popped = take n s
+        rest = drop n s
+        inner = drop 1 . take (length lambda - 1) $ lambda
+        cleanBody = drop 1 ( dropWhile (/='|') inner )
+        cleanLambda = "{ " ++ cleanBody ++ " }"
+
+
 
 evalOp (x : rest) = foldl applyToken rest [castToken (show x)]
 
