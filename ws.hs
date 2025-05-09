@@ -15,6 +15,8 @@ data Node = IntNode Int
           | MatrixNode [[Int]]
           | QuoteNode String
           | LambdaNode String
+          | VectorFloatNode [Float]
+          | MatrixFloatNode [[Float]]
           deriving (Eq)
 type Stack = [Node]
 
@@ -26,8 +28,10 @@ instance Show Node where
   show (StrNode s)    = "\"" ++ s ++ "\""
   show (VectorNode v) = formatList v
   show (MatrixNode m) = "[" ++ intercalate ", " (map formatList m) ++ "]"
+  show (MatrixFloatNode m) = "[" ++ intercalate ", " (map formatList m) ++ "]"
   show (QuoteNode q)  = q
   show (LambdaNode l) = l
+  show (VectorFloatNode v) = formatList v
 
 main :: IO ()
 main = do
@@ -123,7 +127,10 @@ evalOp (x : rest) = foldl applyToken rest [castToken (show x)]
 
 transposeOp :: Stack -> Stack
 transposeOp (MatrixNode m : rest) = MatrixNode (transpose m) : rest
+transposeOp (MatrixFloatNode m : rest) = MatrixFloatNode (transpose m) : rest
+
 transposeOp (VectorNode v : rest) = MatrixNode [v] : rest
+transposeOp (VectorFloatNode v : rest) = MatrixFloatNode [v] : rest
 
 unaryNumNodeOp f stack =
   case stack of
@@ -171,6 +178,17 @@ cmpOp op stack =
 
         (VectorNode a, VectorNode b) -> BoolNode (compareVector op a b) : rest
         (MatrixNode a, MatrixNode b) -> BoolNode (compareMatrix op a b) : rest
+
+        (VectorFloatNode a, VectorFloatNode b) -> BoolNode (compareVectorFloat op a b) : rest
+        (MatrixFloatNode a, MatrixFloatNode b) -> BoolNode (compareMatrixFloat op a b) : rest
+
+compareVectorFloat :: String -> [Float] -> [Float] -> Bool
+compareVectorFloat "==" = (==)
+compareVectorFloat "!=" = (/=)
+
+compareMatrixFloat :: String -> [[Float]] -> [[Float]] -> Bool
+compareMatrixFloat "==" = (==)
+compareMatrixFloat "!=" = (/=)
 
 compareVector :: String -> [Int] -> [Int] -> Bool
 compareVector "==" = (==)
@@ -253,6 +271,8 @@ addOp (FloatNode x : IntNode y : rest)   = FloatNode (fromIntegral y + x) : rest
 addOp (StrNode x : StrNode y : rest)   = StrNode (y ++ x) : rest
 addOp (VectorNode x : VectorNode y : rest) = VectorNode (zipWith (+) y x) : rest
 
+addOp (VectorFloatNode x : VectorFloatNode y : rest) = VectorFloatNode (zipWith (+) y x) : rest
+
 subOp :: Stack -> Stack
 subOp (IntNode x : IntNode y : xs) = IntNode (y - x) : xs
 subOp (FloatNode x : FloatNode y : xs) = FloatNode (y - x) : xs
@@ -272,15 +292,32 @@ multOp (VectorNode x : VectorNode y : rest) = IntNode (sum (zipWith (*) y x)) : 
 multOp (MatrixNode x : MatrixNode y : rest) =
   let result = [[sum $ zipWith (*) row col | col <- transpose y] | row <- x]
   in MatrixNode result : rest
+multOp (MatrixFloatNode x : MatrixFloatNode y : rest) =
+  let result = [[sum $ zipWith (*) row col | col <- transpose y] | row <- x]
+  in MatrixFloatNode result : rest
 
+multOp (VectorFloatNode x : MatrixFloatNode y : rest) =
+  let result = [sum $ zipWith (*) x row | row <- y]
+  in VectorFloatNode result : rest
 
 multOp (VectorNode x : MatrixNode y : rest) =
   let result = [sum $ zipWith (*) x row | row <- y]
   in VectorNode result : rest
 
+multOp (MatrixFloatNode x : VectorFloatNode y : rest) =
+  let result = [sum $ zipWith (*) row y | row <- x]
+  in VectorFloatNode result : rest
+
+multOp (MatrixNode x : VectorFloatNode y : rest) =
+  let result = [sum $ zipWith (*) (map fromIntegral row) y | row <- x]
+  in VectorFloatNode result : rest
+
+
 multOp (MatrixNode x : VectorNode y : rest) =
   let result = [sum $ zipWith (*) row y | row <- x]
   in VectorNode result : rest
+
+multOp (VectorFloatNode x : VectorFloatNode y : rest) = FloatNode (sum (zipWith (*) y x)) : rest
 
 divOp :: Stack -> Stack
 divOp (IntNode x : IntNode y : xs) = IntNode (y `div` x) : xs
@@ -305,6 +342,10 @@ crossOp stack = case stack of
         VectorNode [ a2*b3 - a3*b2
                    , a3*b1 - a1*b3
                    , a1*b2 - a2*b1 ] : rest
+    (VectorFloatNode [b1,b2,b3] : VectorFloatNode [a1,a2,a3] : rest) ->
+        VectorFloatNode [ a2*b3 - a3*b2
+                         , a3*b1 - a1*b3
+                         , a1*b2 - a2*b1 ] : rest
 
 castToken token
   | "'" `isPrefixOf` token =
@@ -313,7 +354,9 @@ castToken token
          then QuoteNode strippedToken
          else castToken strippedToken
   | isLambda token     = LambdaNode token
+  | isMatrixFloat token = MatrixFloatNode (parseMatrixFloat token)
   | isMatrix token     = MatrixNode (parseMatrix token)
+  | isVectorFloat token = VectorFloatNode (parseVectorFloat token)
   | isVector token     = VectorNode (parseVector token)
   | isString token     = StrNode (init (tail token))
   | isBool token       = BoolNode (toBool token)
@@ -322,9 +365,11 @@ castToken token
   | isOp token         = OpNode token
   | otherwise          = StrNode token
   where
+    isMatrixFloat s = "[[" `isPrefixOf` s && "]]" `isSuffixOf` s && '.' `elem` s
     isLambda s = "{" `isPrefixOf` s && "}" `isSuffixOf` s
     isMatrix s = "[[" `isPrefixOf` s && "]]" `isSuffixOf` s
     isVector s = "[" `isPrefixOf` s && "]" `isSuffixOf` s && not (isMatrix s)
+    isVectorFloat s = isVector s && '.' `elem` s && not (isMatrix s)
     isString s = "\"" `isPrefixOf` s && "\"" `isSuffixOf` s
     isBool s = case map toLower s of
                    "true"  -> True
@@ -343,12 +388,24 @@ parseVector s =
     [(xs, "")] -> xs
     _          -> []
 
+parseVectorFloat :: String -> [Float]
+parseVectorFloat s =
+  case reads s of
+    [(xs, "")] -> xs
+    _          -> []
+
+
 parseMatrix :: String -> [[Int]]
 parseMatrix s =
   case reads s of
     [(xss, "")] -> xss
     _           -> []
 
+parseMatrixFloat :: String -> [[Float]]
+parseMatrixFloat s =
+  case reads s of
+    [(xss, "")] -> xss
+    _           -> []
 parseStringToTokens :: String -> String -> Bool -> Bool -> Int -> [String]
 parseStringToTokens [] currentStr _ _ _
     | null currentStr = []
